@@ -94,8 +94,6 @@ class TrainDataset(Dataset):
         waveform = torch.Tensor(waveform)
 
 
-
-#        if self.training_data[idx][1] == np.array([1.,0.]):
         if np.array_equal(self.training_data[idx][1], np.array([1., 0.])):
             random_number = random.randint(0, 1)
             if random_number == 0:
