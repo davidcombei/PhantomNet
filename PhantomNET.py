@@ -83,7 +83,7 @@ class EncoderLayer(nn.Module):
 
 
 class PhantomNet(nn.Module):
-    def __init__(self,  use_mode, feature_size, conv_projection, num_classes,num_heads = 8, num_layers = 6, d_ff =2048, dropout =0.1):
+    def __init__(self, use_mode, feature_size, conv_projection, num_classes, num_heads=8, num_layers=6, d_ff=2048, dropout=0.1):
         super(PhantomNet, self).__init__()
         self.conv1 = nn.Conv1d(in_channels=1, out_channels=512, kernel_size=10, stride=5)
         self.conv2 = nn.Conv1d(in_channels=512, out_channels=512, kernel_size=3, stride=2)
@@ -100,17 +100,28 @@ class PhantomNet(nn.Module):
         self.gelu = nn.GELU()
         self.relu = nn.ReLU()
 
-        self.fcIntermidiate = nn.Linear(512,feature_size)
+        self.fcIntermidiate = nn.Linear(512, feature_size)
         self.positional_encoding = PositionalEncoding(feature_size, 10000)
         self.encoder_layers = nn.ModuleList(
             [EncoderLayer(feature_size, num_heads, d_ff, dropout) for _ in range(num_layers)])
         self.dropout = nn.Dropout(dropout)
-        if self.conv_projection == True:
-           self.convProjection = nn.Conv1d(feature_size,feature_size, kernel_size=128, stride=1)
+        
+        if self.conv_projection:
+            self.convProjection = nn.Conv1d(feature_size, feature_size, kernel_size=128, stride=1)
+        
         self.fc1 = nn.Linear(feature_size, feature_size)
-        self.fc2 = nn.Linear(feature_size,1, bias=True)
-        self.fcSpoof = None
+        self.fc2 = nn.Linear(feature_size, 1, bias=True)
 
+        
+        if self.use_mode == 'spoof':
+            #if there is a mismatch error, you will need to replace this input size.. currently working with 8 seconds samples
+            #just multiply 95.760 * seconds the get this layer's input size
+            #or I can just add another parameter to the model seq_length and input = seq_length * feature_size 
+            self.fcSpoof = nn.Linear(286080, d_ff)
+            self.fcFinal = nn.Linear(d_ff,self.num_classes)
+            
+        else:
+            self.fcSpoof = None
 
     def forward(self, src):
         src = src.unsqueeze(1)
@@ -124,8 +135,10 @@ class PhantomNet(nn.Module):
         src = src.permute(0, 2, 1)
         src = self.fcIntermidiate(src)
         src = src.permute(0, 2, 1)
-        if self.conv_projection == True:
+        
+        if self.conv_projection:
             src = self.gelu(self.convProjection(src))
+        
         src = self.dropout(src)
         src = src.transpose(1, 2)
         src_embedded = self.dropout(self.positional_encoding(src))
@@ -137,18 +150,18 @@ class PhantomNet(nn.Module):
         embeddings = self.fc1(enc_output)
         flatten_embeddings = self.flatten(embeddings)
 
-        if(self.use_mode=='extractor'):
-           return embeddings
-        elif(self.use_mode=='partialSpoof'):
-           return self.fc2(embeddings)
-        elif(self.use_mode=='spoof'):
-            if self.fcSpoof == None:
-                features = flatten_embeddings.size(1)
-                self.fcSpoof = nn.Linear(features, self.num_classes)
-            return self.sigmoid(self.fcSpoof(flatten_embeddings))
+        if self.use_mode == 'extractor':
+            return embeddings
+        elif self.use_mode == 'partialSpoof':
+            return self.fc2(embeddings)
+        elif self.use_mode == 'spoof':
+            out_fcSpoof= self.fcSpoof(flatten_embeddings)
+            output = self.fcFinal(out_fcSpoof)
+           # output = self.sigmoid(self.fcSpoof(flatten_embeddings))
+#            print(f"Model output shape: {output.shape}")
+            return output
         else:
-           raise 'Wrong use mode of PhantomNet, please pick between extractor, partialSpoof or spoof'
-
+            raise ValueError('Wrong use mode of PhantomNet, please pick between extractor, partialSpoof, or spoof')
 
 
 
